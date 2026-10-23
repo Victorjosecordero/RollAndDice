@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#100b0b" />
+    <meta
+      name="description"
+      content="Lanza dados D4, D6, D8, D10, D12 y D20 con animaciones, modificadores e historial."
+    />
+    <title>VP Dice Roller · D&amp;D</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&amp;family=Inter:wght@400;500;600;700&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <a class="brand" href="#" aria-label="VP Dice Roller, inicio">
+        <span>VP</span>
+        <span class="brand-copy">
+          <strong>Dice Roller</strong>
+          <small>Dungeons &amp; Dragons</small>
+        </span>
+      </a>
+      <button class="sound-toggle" id="soundToggle" type="button" aria-pressed="false" aria-label="Activar sonido">
+        <svg class="sound-on" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M11 5 6.5 9H3v6h3.5l4.5 4V5Zm4.5 4.2a4 4 0 0 1 0 5.6M18 6.5a8 8 0 0 1 0 11" />
+        </svg>
+        <svg class="sound-off" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M11 5 6.5 9H3v6h3.5l4.5 4V5Zm5 5 4 4m0-4-4 4" />
+        </svg>
+      </button>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="pageTitle">
+        <div class="eyebrow"><span></span> Que los dados decidan <span></span></div>
+        <h1 id="pageTitle">Tienta a la <em>fortuna</em></h1>
+        <p>Elige tu dado, ajusta el modificador y deja tu destino en manos del azar.</p>
+      </section>
+
+      <section class="dice-selector" aria-labelledby="diceSelectorTitle">
+        <h2 id="diceSelectorTitle" class="sr-only">Elige un tipo de dado</h2>
+        <div class="dice-grid" id="diceGrid">
+          <button class="die-option" type="button" data-sides="4" aria-pressed="false">
+            <span class="mini-die mini-d4" aria-hidden="true">4</span><strong>D4</strong><small>Daño ligero</small>
+          </button>
+          <button class="die-option" type="button" data-sides="6" aria-pressed="false">
+            <span class="mini-die mini-d6" aria-hidden="true">6</span><strong>D6</strong><small>El clásico</small>
+          </button>
+          <button class="die-option" type="button" data-sides="8" aria-pressed="false">
+            <span class="mini-die mini-d8" aria-hidden="true">8</span><strong>D8</strong><small>Daño medio</small>
+          </button>
+          <button class="die-option" type="button" data-sides="10" aria-pressed="false">
+            <span class="mini-die mini-d10" aria-hidden="true">10</span><strong>D10</strong><small>Percentil</small>
+          </button>
+          <button class="die-option" type="button" data-sides="12" aria-pressed="false">
+            <span class="mini-die mini-d12" aria-hidden="true">12</span><strong>D12</strong><small>Golpe brutal</small>
+          </button>
+          <button class="die-option active" type="button" data-sides="20" aria-pressed="true">
+            <span class="mini-die mini-d20" aria-hidden="true">20</span><strong>D20</strong><small>Destino</small>
+          </button>
+        </div>
+      </section>
+
+      <section class="roller-card" aria-label="Panel de lanzamiento">
+        <div class="ornament ornament-top" aria-hidden="true"><span></span><i>◆</i><span></span></div>
+        <div class="roll-controls">
+          <div class="control-group">
+            <label for="quantity">Cantidad</label>
+            <div class="stepper">
+              <button type="button" data-step="quantity" data-delta="-1" aria-label="Reducir cantidad">−</button>
+              <output id="quantity" aria-live="polite">1</output>
+              <button type="button" data-step="quantity" data-delta="1" aria-label="Aumentar cantidad">+</button>
+            </div>
+          </div>
+          <div class="control-separator" aria-hidden="true"></div>
+          <div class="control-group">
+            <label for="modifier">Modificador</label>
+            <div class="stepper">
+              <button type="button" data-step="modifier" data-delta="-1" aria-label="Reducir modificador">−</button>
+              <output id="modifier" aria-live="polite">+0</output>
+              <button type="button" data-step="modifier" data-delta="1" aria-label="Aumentar modificador">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="roll-stage" aria-live="polite" aria-atomic="true">
+          <div class="magic-ring" aria-hidden="true"><span></span></div>
+          <div class="hero-die d20" id="heroDie" aria-hidden="true">
+            <div class="die-face">
+              <svg viewBox="0 0 220 200" role="presentation">
+                <defs>
+                  <linearGradient id="dieFill" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#da3a3d" />
+                    <stop offset=".47" stop-color="#8e111f" />
+                    <stop offset="1" stop-color="#31050b" />
+                  </linearGradient>
+                  <linearGradient id="dieShine" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#fff" stop-opacity=".2" />
+                    <stop offset="1" stop-color="#fff" stop-opacity="0" />
+                  </linearGradient>
+                </defs>
+                <path class="die-body" id="dieBody" d="M110 7 202 58 184 160 110 195 34 160 18 58Z" />
+                <path class="die-highlight" id="dieHighlight" d="M110 7 202 58 110 75 18 58Z" />
+                <g class="die-lines" id="dieLines">
+                  <path d="M110 7v68M18 58l92 17 92-17M34 160l76-85 74 85M34 160h150M18 58l92 137 92-137" />
+                  <path d="m18 58 16 102 76 35 74-35 18-102" opacity=".65" />
+                </g>
+              </svg>
+              <strong id="dieValue">20</strong>
+            </div>
+          </div>
+          <div class="roll-result">
+            <span id="resultLabel">Listo para lanzar</span>
+            <strong id="resultTotal">D20</strong>
+            <small id="resultBreakdown">Pulsa el botón o la barra espaciadora</small>
+          </div>
+        </div>
+
+        <button class="roll-button" id="rollButton" type="button">
+          <span class="button-icon" aria-hidden="true">◆</span>
+          <span>Lanzar dados</span>
+          <kbd>Espacio</kbd>
+        </button>
+        <div class="ornament ornament-bottom" aria-hidden="true"><span></span><i>✦</i><span></span></div>
+      </section>
+
+      <section class="history-section" aria-labelledby="historyTitle">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">Crónica de la partida</span>
+            <h2 id="historyTitle">Historial de tiradas</h2>
+          </div>
+          <button class="clear-button" id="clearHistory" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" /></svg>
+            Limpiar
+          </button>
+        </div>
+
+        <div class="history-list" id="historyList" aria-live="polite">
+          <div class="empty-history">
+            <span class="empty-die" aria-hidden="true">?</span>
+            <strong>Aún no hay tiradas</strong>
+            <p>Tu aventura comienza con el primer lanzamiento.</p>
+          </div>
+        </div>
+
+        <div class="stats-bar">
+          <div><span>Tiradas hoy</span><strong id="rollCount">0</strong></div>
+          <div class="stats-divider"></div>
+          <div><span>Mejor tirada</span><strong id="bestRoll">—</strong></div>
+          <p><span aria-hidden="true">⌁</span> El azar favorece a los valientes</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-rule"><span>◆</span></div>
+      <p>Forjado para aventureros · <span>VP</span> Dice Roller</p>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>
