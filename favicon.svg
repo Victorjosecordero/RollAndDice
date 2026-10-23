@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <linearGradient id="g" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#dc3943"/>
-      <stop offset=".55" stop-color="#951522"/>
-      <stop offset="1" stop-color="#3b080e"/>
+      <stop stop-color="#ae5bff"/>
+      <stop offset=".55" stop-color="#7730df"/>
+      <stop offset="1" stop-color="#28105e"/>
     </linearGradient>
   </defs>
-  <path d="M32 2 58 17l-5 29-21 16L11 46 6 17Z" fill="url(#g)" stroke="#e4ba62" stroke-width="2"/>
-  <path d="M32 2v17M6 17l26 2 26-2M11 46l21-27 21 27M11 46h42M6 17l26 45 26-45" fill="none" stroke="#f1cf81" stroke-opacity=".5"/>
+  <path d="M32 2 58 17l-5 29-21 16L11 46 6 17Z" fill="url(#g)" stroke="#cf9dff" stroke-width="2"/>
+  <path d="M32 2v17M6 17l26 2 26-2M11 46l21-27 21 27M11 46h42M6 17l26 45 26-45" fill="none" stroke="#e3c2ff" stroke-opacity=".55"/>
   <text x="32" y="39" fill="#fff0c8" font-family="Georgia,serif" font-size="16" font-weight="700" text-anchor="middle">VP</text>
 </svg>

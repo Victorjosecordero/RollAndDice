@@ -1,48 +1,9 @@
-const DICE_LABELS = {
-  4: "Daño ligero",
-  6: "El clásico",
-  8: "Daño medio",
-  10: "Percentil",
-  12: "Golpe brutal",
-  20: "Destino",
-};
-
-const DICE_GEOMETRY = {
-  4: {
-    body: "M110 8 204 180 16 180Z",
-    highlight: "M110 8 110 112 16 180Z",
-    lines: '<path d="M110 8v104M16 180l94-68 94 68M16 180h188" />',
-  },
-  6: {
-    body: "M48 28 158 14 194 55 174 168 62 184 24 141Z",
-    highlight: "M48 28 158 14 194 55 83 72Z",
-    lines: '<path d="M48 28 83 72l111-17M83 72 62 184M83 72l91 96M24 141l38 43M24 141l24-113" />',
-  },
-  8: {
-    body: "M110 5 202 99 110 195 18 99Z",
-    highlight: "M110 5 202 99 110 75 18 99Z",
-    lines: '<path d="M110 5v70M18 99l92-24 92 24M18 99l92 96 92-96" />',
-  },
-  10: {
-    body: "M110 5 199 68 172 164 110 195 47 164 21 68Z",
-    highlight: "M110 5 199 68 110 75 21 68Z",
-    lines: '<path d="M110 5v70M21 68l89 7 89-7M47 164l63-89 62 89M47 164l63 31 62-31M21 68l26 96M199 68l-27 96" />',
-  },
-  12: {
-    body: "M110 5 185 31 207 105 169 177 91 195 27 150 14 72 70 16Z",
-    highlight: "M110 5 185 31 149 65 70 62Z",
-    lines: '<path d="M110 5 70 62l40 45 39-42-39-60M70 62 14 72l46 59 50-24 57 27 40-29M149 65l36-34M60 131l31 64M167 134l2 43M60 131l-33 19M110 107v88" />',
-  },
-  20: {
-    body: "M110 7 202 58 184 160 110 195 34 160 18 58Z",
-    highlight: "M110 7 202 58 110 75 18 58Z",
-    lines: '<path d="M110 7v68M18 58l92 17 92-17M34 160l76-85 74 85M34 160h150M18 58l92 137 92-137" /><path d="m18 58 16 102 76 35 74-35 18-102" opacity=".65" />',
-  },
-};
+const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
+const SIDES = [4, 6, 8, 10, 12, 20];
+const MAX_DICE = 14;
 
 const state = {
-  sides: 20,
-  quantity: 1,
+  pool: { 4: 0, 6: 0, 8: 0, 10: 0, 12: 0, 20: 1 },
   modifier: 0,
   rolling: false,
   sound: false,
@@ -50,30 +11,68 @@ const state = {
 };
 
 const elements = {
-  diceGrid: document.querySelector("#diceGrid"),
-  quantity: document.querySelector("#quantity"),
+  canvas: document.querySelector("#diceCanvas"),
+  tabletop: document.querySelector("#tabletop"),
+  dicePool: document.querySelector("#dicePool"),
   modifier: document.querySelector("#modifier"),
-  heroDie: document.querySelector("#heroDie"),
-  dieValue: document.querySelector("#dieValue"),
-  resultLabel: document.querySelector("#resultLabel"),
-  resultTotal: document.querySelector("#resultTotal"),
-  resultBreakdown: document.querySelector("#resultBreakdown"),
-  rollResult: document.querySelector(".roll-result"),
+  poolFormula: document.querySelector("#poolFormula"),
   rollButton: document.querySelector("#rollButton"),
+  resetPool: document.querySelector("#resetPool"),
+  resultCard: document.querySelector("#resultCard"),
+  resultTitle: document.querySelector("#resultTitle"),
+  resultTotal: document.querySelector("#resultTotal"),
+  resultFormula: document.querySelector("#resultFormula"),
+  closeResult: document.querySelector("#closeResult"),
+  sceneHint: document.querySelector("#sceneHint"),
+  fallbackMessage: document.querySelector("#fallbackMessage"),
+  renderStatus: document.querySelector("#renderStatus"),
   historyList: document.querySelector("#historyList"),
   clearHistory: document.querySelector("#clearHistory"),
   rollCount: document.querySelector("#rollCount"),
   bestRoll: document.querySelector("#bestRoll"),
   soundToggle: document.querySelector("#soundToggle"),
-  dieBody: document.querySelector("#dieBody"),
-  dieHighlight: document.querySelector("#dieHighlight"),
-  dieLines: document.querySelector("#dieLines"),
 };
+
+function normalizeHistoryItem(item) {
+  if (!item || !Number.isFinite(Number(item.total))) return null;
+  const parsedDate = new Date(item.timestamp);
+  const timestamp = Number.isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
+  if (Array.isArray(item.pools)) {
+    const pools = item.pools
+      .map((pool) => ({
+        sides: Number(pool.sides),
+        count: Number(pool.count),
+        rolls: Array.isArray(pool.rolls) ? pool.rolls.map(Number).filter(Number.isFinite) : [],
+      }))
+      .filter((pool) => SIDES.includes(pool.sides) && pool.count > 0);
+    if (!pools.length) return null;
+    return {
+      id: Number(item.id) || Date.now(),
+      pools,
+      total: Number(item.total),
+      modifier: Number(item.modifier) || 0,
+      timestamp,
+      critical: Boolean(item.critical),
+    };
+  }
+  if (SIDES.includes(Number(item.sides))) {
+    const rolls = Array.isArray(item.rolls) ? item.rolls.map(Number).filter(Number.isFinite) : [];
+    return {
+      id: Number(item.id) || Date.now(),
+      pools: [{ sides: Number(item.sides), count: Number(item.quantity) || rolls.length || 1, rolls }],
+      modifier: Number(item.modifier) || 0,
+      total: Number(item.total),
+      timestamp,
+      critical: Boolean(item.critical),
+    };
+  }
+  return null;
+}
 
 function loadHistory() {
   try {
-    const saved = JSON.parse(localStorage.getItem("vp-dice-history"));
-    return Array.isArray(saved) ? saved.slice(0, 12) : [];
+    const stored = JSON.parse(localStorage.getItem("vp-dice-history"));
+    return Array.isArray(stored) ? stored.map(normalizeHistoryItem).filter(Boolean).slice(0, 15) : [];
   } catch {
     return [];
   }
@@ -92,37 +91,55 @@ function randomDie(sides) {
 }
 
 function signed(value) {
-  return value >= 0 ? `+${value}` : `${value}`;
+  return value >= 0 ? `+${value}` : String(value);
 }
 
-function setSides(sides) {
-  state.sides = sides;
-  document.querySelectorAll(".die-option").forEach((button) => {
-    const isActive = Number(button.dataset.sides) === sides;
-    button.classList.toggle("active", isActive);
-    button.setAttribute("aria-pressed", String(isActive));
+function totalDice() {
+  return SIDES.reduce((total, sides) => total + state.pool[sides], 0);
+}
+
+function poolParts(pool = state.pool) {
+  return SIDES.filter((sides) => pool[sides] > 0).map((sides) => `${pool[sides]}D${sides}`);
+}
+
+function poolFormula(pool = state.pool, modifier = state.modifier) {
+  const parts = poolParts(pool);
+  if (modifier) parts.push(signed(modifier));
+  return parts.length ? parts.join(" + ").replace("+ -", "− ") : "Sin dados";
+}
+
+function updateControls({ refreshScene = true } = {}) {
+  document.querySelectorAll(".die-control").forEach((control) => {
+    const sides = Number(control.dataset.sides);
+    control.querySelector("output").textContent = state.pool[sides];
+    control.classList.toggle("active", state.pool[sides] > 0);
   });
-  elements.heroDie.className = `hero-die d${sides}`;
-  elements.dieBody.setAttribute("d", DICE_GEOMETRY[sides].body);
-  elements.dieHighlight.setAttribute("d", DICE_GEOMETRY[sides].highlight);
-  elements.dieLines.innerHTML = DICE_GEOMETRY[sides].lines;
-  elements.dieValue.textContent = sides;
-  elements.resultLabel.textContent = DICE_LABELS[sides];
-  elements.resultTotal.textContent = `${state.quantity > 1 ? `${state.quantity}×` : ""}D${sides}`;
-  elements.resultBreakdown.textContent = "Pulsa el botón o la barra espaciadora";
-  elements.rollResult.className = "roll-result";
-}
-
-function updateControls() {
-  elements.quantity.textContent = state.quantity;
   elements.modifier.textContent = signed(state.modifier);
-  elements.resultTotal.textContent = `${state.quantity > 1 ? `${state.quantity}×` : ""}D${state.sides}`;
+  elements.poolFormula.textContent = poolFormula();
+  elements.rollButton.disabled = state.rolling || totalDice() === 0;
+  if (refreshScene && engine.ready && !state.rolling) engine.preview(expandPool(false));
 }
 
-function stepControl(type, delta) {
-  if (type === "quantity") state.quantity = Math.max(1, Math.min(10, state.quantity + delta));
-  if (type === "modifier") state.modifier = Math.max(-20, Math.min(20, state.modifier + delta));
+function adjustDie(sides, delta) {
+  const current = state.pool[sides];
+  if (delta > 0 && totalDice() >= MAX_DICE) {
+    elements.sceneHint.innerHTML = `<span aria-hidden="true">✦</span> Máximo ${MAX_DICE} dados por tirada`;
+    return;
+  }
+  state.pool[sides] = Math.max(0, Math.min(10, current + delta));
+  elements.resultCard.hidden = true;
+  elements.sceneHint.innerHTML = '<span aria-hidden="true">✦</span> Reserva actualizada';
   updateControls();
+}
+
+function expandPool(withResults) {
+  const dice = [];
+  SIDES.forEach((sides) => {
+    for (let index = 0; index < state.pool[sides]; index += 1) {
+      dice.push({ sides, result: withResults ? randomDie(sides) : sides });
+    }
+  });
+  return dice;
 }
 
 function playRollSound() {
@@ -130,121 +147,426 @@ function playRollSound() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
   const context = new AudioContext();
-  [0, .08, .16, .24].forEach((delay, index) => {
+  [0, .08, .14, .21, .3].forEach((delay, index) => {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    oscillator.type = "triangle";
-    oscillator.frequency.value = 120 + index * 35 + Math.random() * 30;
-    gain.gain.setValueAtTime(.045, context.currentTime + delay);
-    gain.gain.exponentialRampToValueAtTime(.001, context.currentTime + delay + .09);
+    oscillator.type = index % 2 ? "triangle" : "sine";
+    oscillator.frequency.value = 95 + index * 27 + Math.random() * 20;
+    gain.gain.setValueAtTime(.04, context.currentTime + delay);
+    gain.gain.exponentialRampToValueAtTime(.001, context.currentTime + delay + .1);
     oscillator.connect(gain).connect(context.destination);
     oscillator.start(context.currentTime + delay);
-    oscillator.stop(context.currentTime + delay + .1);
+    oscillator.stop(context.currentTime + delay + .11);
   });
-  setTimeout(() => context.close(), 700);
+  setTimeout(() => context.close(), 850);
+}
+
+function finishRoll(dice, pools, total, formula, isCritical, isFumble) {
+  state.rolling = false;
+  elements.rollButton.disabled = false;
+  elements.resultTitle.textContent = isCritical ? "¡Crítico!" : isFumble ? "Pifia arcana" : "Resultado";
+  elements.resultTotal.textContent = total;
+  elements.resultFormula.textContent = formula;
+  elements.resultCard.hidden = false;
+  elements.resultCard.classList.toggle("critical", isCritical);
+  elements.resultCard.classList.toggle("fumble", isFumble);
+  elements.sceneHint.innerHTML = '<span aria-hidden="true">✦</span> Los dados han hablado';
+
+  state.history.unshift({
+    id: Date.now(),
+    pools,
+    modifier: state.modifier,
+    total,
+    formula,
+    dice: dice.map((die) => ({ sides: die.sides, result: die.result })),
+    timestamp: new Date().toISOString(),
+    critical: isCritical,
+  });
+  state.history = state.history.slice(0, 15);
+  saveHistory();
+  renderHistory();
 }
 
 function roll() {
-  if (state.rolling) return;
+  if (state.rolling || totalDice() === 0) return;
   state.rolling = true;
   elements.rollButton.disabled = true;
-  elements.heroDie.classList.add("rolling");
-  elements.resultLabel.textContent = "Los dados están rodando…";
-  elements.resultBreakdown.textContent = "El destino se está decidiendo";
+  elements.resultCard.hidden = true;
+  elements.sceneHint.innerHTML = '<span aria-hidden="true">✦</span> Lanzando…';
   playRollSound();
 
-  let flickerCount = 0;
-  const flicker = setInterval(() => {
-    elements.dieValue.textContent = randomDie(state.sides);
-    flickerCount += 1;
-    if (flickerCount > 8) clearInterval(flicker);
-  }, 75);
+  const dice = expandPool(true);
+  const pools = SIDES.filter((sides) => state.pool[sides] > 0).map((sides) => ({
+    sides,
+    count: state.pool[sides],
+    rolls: dice.filter((die) => die.sides === sides).map((die) => die.result),
+  }));
+  const subtotal = dice.reduce((sum, die) => sum + die.result, 0);
+  const total = subtotal + state.modifier;
+  const formula = poolFormula();
+  const d20Rolls = dice.filter((die) => die.sides === 20).map((die) => die.result);
+  const isCritical = d20Rolls.includes(20);
+  const isFumble = d20Rolls.length > 0 && d20Rolls.every((value) => value === 1);
+  const complete = () => finishRoll(dice, pools, total, formula, isCritical, isFumble);
 
-  setTimeout(() => {
-    clearInterval(flicker);
-    const rolls = Array.from({ length: state.quantity }, () => randomDie(state.sides));
-    const subtotal = rolls.reduce((sum, value) => sum + value, 0);
-    const total = subtotal + state.modifier;
-    const natural = state.quantity === 1 ? rolls[0] : null;
+  if (engine.ready) engine.roll(dice, complete);
+  else setTimeout(complete, 700);
+}
 
-    elements.dieValue.textContent = natural ?? total;
-    elements.resultLabel.textContent = natural === state.sides ? "¡Crítico!" : natural === 1 ? "Pifia…" : "Resultado de la tirada";
-    elements.resultTotal.textContent = total;
-    const rollText = rolls.join(" + ");
-    elements.resultBreakdown.textContent = state.modifier ? `${rollText} ${signed(state.modifier)} = ${total}` : `${rollText} = ${total}`;
-    elements.rollResult.className = `roll-result${natural === state.sides ? " critical" : natural === 1 ? " fumble" : ""}`;
-    elements.heroDie.classList.remove("rolling");
-    elements.rollButton.disabled = false;
-    state.rolling = false;
+function itemFormula(item) {
+  const parts = item.pools.map((pool) => `${pool.count}D${pool.sides}`);
+  if (item.modifier) parts.push(signed(item.modifier));
+  return parts.join(" + ").replace("+ -", "− ");
+}
 
-    state.history.unshift({
-      id: Date.now(),
-      sides: state.sides,
-      quantity: state.quantity,
-      modifier: state.modifier,
-      rolls,
-      total,
-      timestamp: new Date().toISOString(),
-    });
-    state.history = state.history.slice(0, 12);
-    saveHistory();
-    renderHistory();
-  }, 860);
+function itemDetails(item) {
+  return item.pools.map((pool) => `D${pool.sides}: ${pool.rolls.join(", ")}`).join(" · ");
 }
 
 function formatTime(timestamp) {
-  return new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit" }).format(new Date(timestamp));
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 function isToday(timestamp) {
   const date = new Date(timestamp);
-  const now = new Date();
-  return date.toDateString() === now.toDateString();
+  return !Number.isNaN(date.getTime()) && date.toDateString() === new Date().toDateString();
 }
 
 function renderHistory() {
   if (!state.history.length) {
     elements.historyList.innerHTML = `
       <div class="empty-history">
-        <span class="empty-die" aria-hidden="true">?</span>
+        <i aria-hidden="true">?</i>
         <strong>Aún no hay tiradas</strong>
-        <p>Tu aventura comienza con el primer lanzamiento.</p>
+        <p>Construye una reserva y lanza los dados para comenzar tu crónica.</p>
       </div>`;
   } else {
-    elements.historyList.innerHTML = state.history.map((item) => {
-      const formula = `${item.quantity > 1 ? `${item.quantity}×` : ""}D${item.sides}${item.modifier ? signed(item.modifier) : ""}`;
-      const breakdown = `${item.rolls.join(" + ")}${item.modifier ? ` ${signed(item.modifier)}` : ""}`;
-      return `
-        <article class="history-item">
-          <span class="history-die" aria-hidden="true">D${item.sides}</span>
-          <div class="history-detail">
-            <strong>${formula}</strong>
-            <span>${breakdown}</span>
-          </div>
-          <div class="history-total">
-            <strong>${item.total}</strong>
-            <time datetime="${item.timestamp}">${formatTime(item.timestamp)}</time>
-          </div>
-        </article>`;
-    }).join("");
+    elements.historyList.innerHTML = state.history.map((item) => `
+      <article class="history-item${item.critical ? " critical" : ""}">
+        <div class="history-meta">
+          <span class="history-formula" title="${itemFormula(item)}">${itemFormula(item)}</span>
+          <time datetime="${item.timestamp}">${formatTime(item.timestamp)}</time>
+        </div>
+        <div class="history-result">
+          <span title="${itemDetails(item)}">${item.pools.reduce((sum, pool) => sum + pool.count, 0)} dados</span>
+          <strong>${item.total}</strong>
+        </div>
+      </article>`).join("");
   }
-
   const today = state.history.filter((item) => isToday(item.timestamp));
   elements.rollCount.textContent = today.length;
   elements.bestRoll.textContent = today.length ? Math.max(...today.map((item) => item.total)) : "—";
 }
 
-elements.diceGrid.addEventListener("click", (event) => {
-  const option = event.target.closest(".die-option");
-  if (option) setSides(Number(option.dataset.sides));
+const engine = {
+  ready: false,
+  THREE: null,
+  scene: null,
+  camera: null,
+  renderer: null,
+  dice: [],
+  rolling: false,
+  rollStartedAt: 0,
+  onComplete: null,
+  clock: null,
+  resizeObserver: null,
+
+  geometryFor(sides) {
+    const THREE = this.THREE;
+    if (sides === 4) return new THREE.TetrahedronGeometry(1.04, 0);
+    if (sides === 6) return new THREE.BoxGeometry(1.62, 1.62, 1.62, 1, 1, 1);
+    if (sides === 8) return new THREE.OctahedronGeometry(1.16, 0);
+    if (sides === 10) {
+      const geometry = new THREE.SphereGeometry(1.16, 5, 2);
+      geometry.scale(1, 1.22, 1);
+      return geometry;
+    }
+    if (sides === 12) return new THREE.DodecahedronGeometry(1.12, 0);
+    return new THREE.IcosahedronGeometry(1.18, 0);
+  },
+
+  makeLabel(value, scale) {
+    const THREE = this.THREE;
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 128;
+    const context = canvas.getContext("2d");
+    context.clearRect(0, 0, 256, 128);
+    context.shadowColor = "rgba(20, 0, 45, .8)";
+    context.shadowBlur = 12;
+    context.fillStyle = "#fff9ff";
+    context.font = `700 ${String(value).length > 2 ? 62 : 78}px Inter, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(String(value), 128, 66);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(1.12 * scale, .56 * scale, 1);
+    sprite.renderOrder = 20;
+    return sprite;
+  },
+
+  makeDie(die, index, count) {
+    const THREE = this.THREE;
+    const scale = count <= 4 ? 1.04 : count <= 8 ? .86 : .7;
+    const group = new THREE.Group();
+    const geometry = this.geometryFor(die.sides);
+    const hues = { 4: 0x8e42f5, 6: 0x7332e8, 8: 0x9b3ff2, 10: 0x6129ca, 12: 0x8237e6, 20: 0x7029d8 };
+    const material = new THREE.MeshPhysicalMaterial({
+      color: hues[die.sides],
+      emissive: 0x170331,
+      emissiveIntensity: .42,
+      metalness: .34,
+      roughness: .18,
+      clearcoat: .9,
+      clearcoatRoughness: .18,
+      flatShading: true,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geometry, 18),
+      new THREE.LineBasicMaterial({ color: 0xd7b0ff, transparent: true, opacity: .38 }),
+    );
+    group.add(mesh, edges, this.makeLabel(die.result, scale));
+    group.scale.setScalar(scale);
+    group.userData = {
+      index,
+      sides: die.sides,
+      result: die.result,
+      radius: 1.05 * scale,
+      velocity: new THREE.Vector3(),
+      angular: new THREE.Vector3(),
+      target: new THREE.Vector3(),
+      idlePhase: Math.random() * Math.PI * 2,
+    };
+    return group;
+  },
+
+  targetPositions(count) {
+    const THREE = this.THREE;
+    const columns = Math.ceil(Math.sqrt(count * 1.5));
+    const rows = Math.ceil(count / columns);
+    const spacingX = count > 8 ? 2.05 : 2.45;
+    const spacingZ = count > 8 ? 1.85 : 2.2;
+    return Array.from({ length: count }, (_, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      return new THREE.Vector3(
+        (column - (Math.min(columns, count) - 1) / 2) * spacingX + (Math.random() - .5) * .38,
+        -1.7,
+        (row - (rows - 1) / 2) * spacingZ + (Math.random() - .5) * .35,
+      );
+    });
+  },
+
+  clearDice() {
+    this.dice.forEach((group) => {
+      group.traverse((object) => {
+        object.geometry?.dispose?.();
+        if (object.material?.map) object.material.map.dispose();
+        object.material?.dispose?.();
+      });
+      this.scene.remove(group);
+    });
+    this.dice = [];
+  },
+
+  preview(dice) {
+    if (!this.ready || this.rolling) return;
+    this.clearDice();
+    const visibleDice = dice.length ? dice : [{ sides: 20, result: 20 }];
+    const targets = this.targetPositions(visibleDice.length);
+    visibleDice.forEach((die, index) => {
+      const group = this.makeDie(die, index, visibleDice.length);
+      const target = targets[index];
+      target.y = -2.68 + group.userData.radius;
+      group.position.copy(target);
+      group.rotation.set(Math.random() * .55, Math.random() * Math.PI, Math.random() * .45);
+      group.userData.target.copy(target);
+      this.scene.add(group);
+      this.dice.push(group);
+    });
+  },
+
+  roll(dice, onComplete) {
+    this.clearDice();
+    const targets = this.targetPositions(dice.length);
+    dice.forEach((die, index) => {
+      const group = this.makeDie(die, index, dice.length);
+      group.position.set((Math.random() - .5) * 9, 5.5 + Math.random() * 6, -2 + Math.random() * 4);
+      group.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      group.userData.velocity.set((Math.random() - .5) * 6, -1 - Math.random() * 3, (Math.random() - .5) * 4);
+      group.userData.angular.set(5 + Math.random() * 7, 5 + Math.random() * 8, 4 + Math.random() * 7);
+      group.userData.target.copy(targets[index]);
+      group.userData.target.y = -2.68 + group.userData.radius;
+      this.scene.add(group);
+      this.dice.push(group);
+    });
+    this.rolling = true;
+    this.rollStartedAt = performance.now();
+    this.onComplete = onComplete;
+  },
+
+  resize() {
+    if (!this.renderer) return;
+    const width = Math.max(1, elements.tabletop.clientWidth);
+    const height = Math.max(1, elements.tabletop.clientHeight);
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / height;
+    this.camera.fov = width < 600 ? 48 : 39;
+    this.camera.position.set(0, width < 600 ? 7.8 : 6.8, width < 600 ? 14.5 : 12.5);
+    this.camera.updateProjectionMatrix();
+    this.camera.lookAt(0, -1.0, 0);
+  },
+
+  animate() {
+    if (!this.ready) return;
+    requestAnimationFrame(() => this.animate());
+    const dt = Math.min(this.clock.getDelta(), .034);
+    const elapsed = (performance.now() - this.rollStartedAt) / 1000;
+
+    this.dice.forEach((group, index) => {
+      const data = group.userData;
+      if (this.rolling && elapsed < 1.7) {
+        data.velocity.y -= 13.5 * dt;
+        group.position.addScaledVector(data.velocity, dt);
+        group.rotation.x += data.angular.x * dt;
+        group.rotation.y += data.angular.y * dt;
+        group.rotation.z += data.angular.z * dt;
+        const floor = -2.68 + data.radius;
+        if (group.position.y < floor) {
+          group.position.y = floor;
+          data.velocity.y = Math.abs(data.velocity.y) * .42;
+          data.velocity.x *= .76;
+          data.velocity.z *= .76;
+          data.angular.multiplyScalar(.83);
+        }
+        if (Math.abs(group.position.x) > 6.4) {
+          group.position.x = Math.sign(group.position.x) * 6.4;
+          data.velocity.x *= -.55;
+        }
+        if (Math.abs(group.position.z) > 4.3) {
+          group.position.z = Math.sign(group.position.z) * 4.3;
+          data.velocity.z *= -.55;
+        }
+      } else if (this.rolling) {
+        const settle = Math.min(1, dt * 3.8);
+        group.position.lerp(data.target, settle);
+        data.angular.multiplyScalar(Math.pow(.055, dt));
+        group.rotation.x += data.angular.x * dt;
+        group.rotation.y += data.angular.y * dt;
+        group.rotation.z += data.angular.z * dt;
+      } else {
+        group.position.y = data.target.y + Math.sin(performance.now() * .00075 + data.idlePhase) * .035;
+        group.rotation.y += dt * (.12 + (index % 3) * .025);
+      }
+    });
+
+    if (this.rolling && elapsed > 2.65) {
+      this.rolling = false;
+      const callback = this.onComplete;
+      this.onComplete = null;
+      callback?.();
+    }
+    this.renderer.render(this.scene, this.camera);
+  },
+};
+
+async function init3D() {
+  try {
+    const THREE = await import(THREE_URL);
+    engine.THREE = THREE;
+    engine.scene = new THREE.Scene();
+    engine.camera = new THREE.PerspectiveCamera(39, 1, .1, 100);
+    engine.renderer = new THREE.WebGLRenderer({ canvas: elements.canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
+    engine.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    engine.renderer.shadowMap.enabled = true;
+    engine.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    engine.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    engine.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    engine.renderer.toneMappingExposure = 1.18;
+    engine.clock = new THREE.Clock();
+
+    engine.scene.add(new THREE.HemisphereLight(0x8c9dff, 0x090511, 1.55));
+    const keyLight = new THREE.DirectionalLight(0xd6c4ff, 3.8);
+    keyLight.position.set(-5, 9, 7);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(1024, 1024);
+    engine.scene.add(keyLight);
+    const violetLight = new THREE.PointLight(0x9b3cff, 18, 22, 2);
+    violetLight.position.set(5, 3, 4);
+    engine.scene.add(violetLight);
+    const blueLight = new THREE.PointLight(0x345dff, 10, 18, 2);
+    blueLight.position.set(-6, 1, -2);
+    engine.scene.add(blueLight);
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(32, 22),
+      new THREE.MeshPhysicalMaterial({ color: 0x111b32, roughness: .84, metalness: .12, transparent: true, opacity: .72 }),
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -2.72;
+    floor.receiveShadow = true;
+    engine.scene.add(floor);
+
+    const halo = new THREE.Mesh(
+      new THREE.TorusGeometry(5.8, .012, 4, 96),
+      new THREE.MeshBasicMaterial({ color: 0x7531cb, transparent: true, opacity: .34 }),
+    );
+    halo.rotation.x = Math.PI / 2;
+    halo.position.y = -2.66;
+    engine.scene.add(halo);
+
+    engine.ready = true;
+    engine.resizeObserver = new ResizeObserver(() => engine.resize());
+    engine.resizeObserver.observe(elements.tabletop);
+    engine.resize();
+    engine.preview(expandPool(false));
+    engine.animate();
+    elements.renderStatus.classList.add("ready");
+    elements.renderStatus.innerHTML = "<i></i> WebGL activo";
+  } catch (error) {
+    console.error("No se pudo iniciar la escena 3D", error);
+    elements.renderStatus.classList.add("error");
+    elements.renderStatus.innerHTML = "<i></i> Modo compatible";
+    elements.fallbackMessage.hidden = false;
+  }
+}
+
+elements.dicePool.addEventListener("click", (event) => {
+  const control = event.target.closest(".die-control");
+  if (!control || state.rolling) return;
+  const sides = Number(control.dataset.sides);
+  const stepButton = event.target.closest("[data-delta]");
+  if (stepButton) adjustDie(sides, Number(stepButton.dataset.delta));
+  else if (event.target.closest(".die-select") && state.pool[sides] === 0) adjustDie(sides, 1);
 });
 
-document.querySelectorAll("[data-step]").forEach((button) => {
-  button.addEventListener("click", () => stepControl(button.dataset.step, Number(button.dataset.delta)));
+document.querySelectorAll("[data-modifier]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (state.rolling) return;
+    state.modifier = Math.max(-30, Math.min(30, state.modifier + Number(button.dataset.modifier)));
+    updateControls({ refreshScene: false });
+  });
+});
+
+elements.resetPool.addEventListener("click", () => {
+  if (state.rolling) return;
+  SIDES.forEach((sides) => { state.pool[sides] = 0; });
+  state.modifier = 0;
+  elements.resultCard.hidden = true;
+  elements.sceneHint.innerHTML = '<span aria-hidden="true">✦</span> Añade al menos un dado';
+  updateControls();
 });
 
 elements.rollButton.addEventListener("click", roll);
-
+elements.closeResult.addEventListener("click", () => { elements.resultCard.hidden = true; });
 elements.clearHistory.addEventListener("click", () => {
   state.history = [];
   saveHistory();
@@ -258,10 +580,12 @@ elements.soundToggle.addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.code === "Space" && !event.repeat && !["INPUT", "TEXTAREA", "BUTTON"].includes(document.activeElement.tagName)) {
+  if (event.code === "Space" && !event.repeat && !["BUTTON", "INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
     event.preventDefault();
     roll();
   }
 });
 
+updateControls({ refreshScene: false });
 renderHistory();
+init3D();
