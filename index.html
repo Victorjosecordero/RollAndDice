@@ -6,11 +6,11 @@
     <meta name="theme-color" content="#090d1e" />
     <meta name="description" content="Lanza dados D4, D6, D8, D10, D12 y D20 en una mesa 3D interactiva." />
     <title>VP Arcane Dice · Roller 3D</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20261023-3" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20261023-4" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20261023-3" />
+    <link rel="stylesheet" href="styles.css?v=20261023-4" />
   </head>
   <body>
     <div class="app-shell">
@@ -46,7 +46,12 @@
               <span class="result-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><path d="m12 2 8 5v10l-8 5-8-5V7l8-5Zm0 0v10m8-5-8 5-8-5m8 5v10" /></svg>
               </span>
-              <div><small id="resultTitle">Resultado</small><strong id="resultTotal">20</strong><p id="resultFormula">1D20</p></div>
+              <div class="result-content">
+                <small id="resultTitle">Resultado</small>
+                <strong id="resultTotal">20</strong>
+                <p id="resultFormula">1D20</p>
+                <div class="result-values" id="resultValues" aria-label="Resultados individuales"></div>
+              </div>
               <button id="closeResult" type="button" aria-label="Cerrar resultado">×</button>
             </div>
 
@@ -134,6 +139,6 @@
       </footer>
     </div>
 
-    <script type="module" src="script.js?v=20261023-3"></script>
+    <script type="module" src="script.js?v=20261023-4"></script>
   </body>
 </html>

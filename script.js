@@ -22,6 +22,7 @@ const elements = {
   resultTitle: document.querySelector("#resultTitle"),
   resultTotal: document.querySelector("#resultTotal"),
   resultFormula: document.querySelector("#resultFormula"),
+  resultValues: document.querySelector("#resultValues"),
   closeResult: document.querySelector("#closeResult"),
   sceneHint: document.querySelector("#sceneHint"),
   fallbackMessage: document.querySelector("#fallbackMessage"),
@@ -167,6 +168,7 @@ function finishRoll(dice, pools, total, formula, isCritical, isFumble) {
   elements.resultTitle.textContent = isCritical ? "¡Crítico!" : isFumble ? "Pifia arcana" : "Resultado";
   elements.resultTotal.textContent = total;
   elements.resultFormula.textContent = formula;
+  elements.resultValues.innerHTML = dice.map((die) => `<span><i>D${die.sides}</i><b>${die.result}</b></span>`).join("");
   elements.resultCard.hidden = false;
   elements.resultCard.classList.toggle("critical", isCritical);
   elements.resultCard.classList.toggle("fumble", isFumble);
@@ -273,6 +275,7 @@ const engine = {
   clock: null,
   resizeObserver: null,
   faceMaterialCache: new Map(),
+  showingResult: false,
 
   geometryFor(sides) {
     const THREE = this.THREE;
@@ -288,19 +291,33 @@ const engine = {
     return new THREE.IcosahedronGeometry(1.18, 0);
   },
 
-  faceMaterial(value) {
+  faceMaterial(value, highlighted = false) {
     const THREE = this.THREE;
-    if (this.faceMaterialCache.has(value)) return this.faceMaterialCache.get(value);
+    const materialKey = `${value}:${highlighted ? "result" : "face"}`;
+    if (this.faceMaterialCache.has(materialKey)) return this.faceMaterialCache.get(materialKey);
     const canvas = document.createElement("canvas");
     canvas.width = 256;
     canvas.height = 256;
     const context = canvas.getContext("2d");
     context.clearRect(0, 0, 256, 256);
-    context.shadowColor = "rgba(15, 0, 40, .95)";
-    context.shadowBlur = 15;
+    if (highlighted) {
+      const glow = context.createRadialGradient(128, 128, 22, 128, 128, 112);
+      glow.addColorStop(0, "rgba(255, 215, 122, .34)");
+      glow.addColorStop(.62, "rgba(151, 65, 255, .3)");
+      glow.addColorStop(1, "rgba(74, 20, 145, 0)");
+      context.fillStyle = glow;
+      context.fillRect(0, 0, 256, 256);
+      context.beginPath();
+      context.arc(128, 128, 93, 0, Math.PI * 2);
+      context.strokeStyle = "rgba(255, 224, 150, .78)";
+      context.lineWidth = 6;
+      context.stroke();
+    }
+    context.shadowColor = highlighted ? "rgba(255, 206, 101, .9)" : "rgba(15, 0, 40, .95)";
+    context.shadowBlur = highlighted ? 22 : 15;
     context.lineWidth = 7;
     context.strokeStyle = "rgba(35, 8, 70, .7)";
-    context.fillStyle = "#fff9ff";
+    context.fillStyle = highlighted ? "#ffe7a3" : "#fff9ff";
     context.font = `700 ${String(value).length > 1 ? 108 : 138}px Inter, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
@@ -318,11 +335,11 @@ const engine = {
       polygonOffset: true,
       polygonOffsetFactor: -4,
       polygonOffsetUnits: -4,
-      side: THREE.FrontSide,
+      side: THREE.DoubleSide,
       toneMapped: false,
     });
     material.userData.sharedFaceLabel = true;
-    this.faceMaterialCache.set(value, material);
+    this.faceMaterialCache.set(materialKey, material);
     return material;
   },
 
@@ -349,7 +366,8 @@ const engine = {
       center.copy(a).add(b).add(c).multiplyScalar(1 / 3);
       if (normal.dot(center) < 0) normal.negate();
       const planeDistance = normal.dot(center);
-      const key = `${normal.x.toFixed(2)}:${normal.y.toFixed(2)}:${normal.z.toFixed(2)}:${planeDistance.toFixed(2)}`;
+      const rounded = (value) => (Math.abs(value) < .005 ? "0.00" : value.toFixed(2));
+      const key = `${rounded(normal.x)}:${rounded(normal.y)}:${rounded(normal.z)}:${rounded(planeDistance)}`;
       if (!groupedFaces.has(key)) groupedFaces.set(key, { normal: normal.clone(), vertices: new Map() });
       const face = groupedFaces.get(key);
       [a, b, c].forEach((vertex) => {
@@ -375,18 +393,22 @@ const engine = {
     const size = labelSizes[sides];
     const numbers = [result, ...Array.from({ length: sides }, (_, index) => index + 1).filter((value) => value !== result)];
     const outward = new THREE.Vector3(0, 0, 1);
-    const faces = this.geometryFaces(geometry).slice(0, sides);
+    const detectedFaces = this.geometryFaces(geometry);
+    const faces = detectedFaces.slice(0, sides);
+    if (faces.length !== sides) console.warn(`D${sides}: se detectaron ${faces.length} de ${sides} caras`);
 
     faces.forEach((face, index) => {
       const plane = new THREE.Mesh(
         new THREE.PlaneGeometry(size, size),
-        this.faceMaterial(numbers[index]),
+        this.faceMaterial(numbers[index], index === 0),
       );
-      plane.position.copy(face.center).addScaledVector(face.normal, .018);
+      plane.position.copy(face.center).addScaledVector(face.normal, .045);
       plane.quaternion.setFromUnitVectors(outward, face.normal);
       plane.renderOrder = 6;
       group.add(plane);
     });
+    group.userData.resultNormal = faces[0]?.normal.clone() ?? new THREE.Vector3(0, 1, 0);
+    group.userData.faceCount = faces.length;
     return group;
   },
 
@@ -413,7 +435,8 @@ const engine = {
       new THREE.EdgesGeometry(geometry, 18),
       new THREE.LineBasicMaterial({ color: 0xd7b0ff, transparent: true, opacity: .38 }),
     );
-    group.add(mesh, edges, this.createFaceLabels(geometry, die.sides, die.result));
+    const faceLabels = this.createFaceLabels(geometry, die.sides, die.result);
+    group.add(mesh, edges, faceLabels);
     group.scale.setScalar(scale);
     group.userData = {
       index,
@@ -423,6 +446,8 @@ const engine = {
       velocity: new THREE.Vector3(),
       angular: new THREE.Vector3(),
       target: new THREE.Vector3(),
+      targetQuaternion: new THREE.Quaternion(),
+      resultNormal: faceLabels.userData.resultNormal.clone(),
       idlePhase: Math.random() * Math.PI * 2,
     };
     return group;
@@ -461,6 +486,7 @@ const engine = {
 
   preview(dice) {
     if (!this.ready || this.rolling) return;
+    this.showingResult = false;
     this.clearDice();
     const visibleDice = dice.length ? dice : [{ sides: 20, result: 20 }];
     const targets = this.targetPositions(visibleDice.length);
@@ -487,12 +513,25 @@ const engine = {
       group.userData.angular.set(5 + Math.random() * 7, 5 + Math.random() * 8, 4 + Math.random() * 7);
       group.userData.target.copy(targets[index]);
       group.userData.target.y = -2.68 + group.userData.radius;
+      this.setResultOrientation(group);
       this.scene.add(group);
       this.dice.push(group);
     });
     this.rolling = true;
+    this.showingResult = true;
     this.rollStartedAt = performance.now();
     this.onComplete = onComplete;
+  },
+
+  setResultOrientation(group) {
+    const THREE = this.THREE;
+    const directionToCamera = this.camera.position.clone().sub(group.userData.target).normalize();
+    const alignResult = new THREE.Quaternion().setFromUnitVectors(
+      group.userData.resultNormal.clone().normalize(),
+      directionToCamera,
+    );
+    const subtleTurn = new THREE.Quaternion().setFromAxisAngle(directionToCamera, (Math.random() - .5) * .22);
+    group.userData.targetQuaternion.copy(subtleTurn.multiply(alignResult));
   },
 
   resize() {
@@ -540,13 +579,15 @@ const engine = {
       } else if (this.rolling) {
         const settle = Math.min(1, dt * 3.8);
         group.position.lerp(data.target, settle);
-        data.angular.multiplyScalar(Math.pow(.055, dt));
-        group.rotation.x += data.angular.x * dt;
-        group.rotation.y += data.angular.y * dt;
-        group.rotation.z += data.angular.z * dt;
+        group.quaternion.slerp(data.targetQuaternion, Math.min(1, dt * 3.5));
       } else {
-        group.position.y = data.target.y + Math.sin(performance.now() * .00075 + data.idlePhase) * .035;
-        group.rotation.y += dt * (.12 + (index % 3) * .025);
+        if (this.showingResult) {
+          group.position.y = data.target.y;
+          group.quaternion.slerp(data.targetQuaternion, Math.min(1, dt * 4.5));
+        } else {
+          group.position.y = data.target.y + Math.sin(performance.now() * .00075 + data.idlePhase) * .035;
+          group.rotation.y += dt * (.12 + (index % 3) * .025);
+        }
       }
     });
 
