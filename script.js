@@ -272,6 +272,7 @@ const engine = {
   onComplete: null,
   clock: null,
   resizeObserver: null,
+  faceMaterialCache: new Map(),
 
   geometryFor(sides) {
     const THREE = this.THREE;
@@ -287,27 +288,106 @@ const engine = {
     return new THREE.IcosahedronGeometry(1.18, 0);
   },
 
-  makeLabel(value, scale) {
+  faceMaterial(value) {
     const THREE = this.THREE;
+    if (this.faceMaterialCache.has(value)) return this.faceMaterialCache.get(value);
     const canvas = document.createElement("canvas");
     canvas.width = 256;
-    canvas.height = 128;
+    canvas.height = 256;
     const context = canvas.getContext("2d");
-    context.clearRect(0, 0, 256, 128);
-    context.shadowColor = "rgba(20, 0, 45, .8)";
-    context.shadowBlur = 12;
+    context.clearRect(0, 0, 256, 256);
+    context.shadowColor = "rgba(15, 0, 40, .95)";
+    context.shadowBlur = 15;
+    context.lineWidth = 7;
+    context.strokeStyle = "rgba(35, 8, 70, .7)";
     context.fillStyle = "#fff9ff";
-    context.font = `700 ${String(value).length > 2 ? 62 : 78}px Inter, sans-serif`;
+    context.font = `700 ${String(value).length > 1 ? 108 : 138}px Inter, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(String(value), 128, 66);
+    context.strokeText(String(value), 128, 132);
+    context.fillText(String(value), 128, 132);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
-    const sprite = new THREE.Sprite(material);
-    sprite.scale.set(1.12 * scale, .56 * scale, 1);
-    sprite.renderOrder = 20;
-    return sprite;
+    texture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      alphaTest: .05,
+      depthTest: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+      side: THREE.FrontSide,
+      toneMapped: false,
+    });
+    material.userData.sharedFaceLabel = true;
+    this.faceMaterialCache.set(value, material);
+    return material;
+  },
+
+  geometryFaces(geometry) {
+    const THREE = this.THREE;
+    const workingGeometry = geometry.index ? geometry.toNonIndexed() : geometry;
+    const position = workingGeometry.getAttribute("position");
+    const groupedFaces = new Map();
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const edgeOne = new THREE.Vector3();
+    const edgeTwo = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    const center = new THREE.Vector3();
+
+    for (let index = 0; index < position.count; index += 3) {
+      a.fromBufferAttribute(position, index);
+      b.fromBufferAttribute(position, index + 1);
+      c.fromBufferAttribute(position, index + 2);
+      edgeOne.subVectors(b, a);
+      edgeTwo.subVectors(c, a);
+      normal.crossVectors(edgeOne, edgeTwo).normalize();
+      center.copy(a).add(b).add(c).multiplyScalar(1 / 3);
+      if (normal.dot(center) < 0) normal.negate();
+      const planeDistance = normal.dot(center);
+      const key = `${normal.x.toFixed(2)}:${normal.y.toFixed(2)}:${normal.z.toFixed(2)}:${planeDistance.toFixed(2)}`;
+      if (!groupedFaces.has(key)) groupedFaces.set(key, { normal: normal.clone(), vertices: new Map() });
+      const face = groupedFaces.get(key);
+      [a, b, c].forEach((vertex) => {
+        const vertexKey = `${vertex.x.toFixed(4)}:${vertex.y.toFixed(4)}:${vertex.z.toFixed(4)}`;
+        if (!face.vertices.has(vertexKey)) face.vertices.set(vertexKey, vertex.clone());
+      });
+    }
+
+    const faces = [...groupedFaces.values()].map((face) => {
+      const faceCenter = new THREE.Vector3();
+      face.vertices.forEach((vertex) => faceCenter.add(vertex));
+      faceCenter.multiplyScalar(1 / face.vertices.size);
+      return { normal: face.normal, center: faceCenter };
+    });
+    if (workingGeometry !== geometry) workingGeometry.dispose();
+    return faces;
+  },
+
+  createFaceLabels(geometry, sides, result) {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const labelSizes = { 4: .57, 6: .72, 8: .54, 10: .48, 12: .43, 20: .38 };
+    const size = labelSizes[sides];
+    const numbers = [result, ...Array.from({ length: sides }, (_, index) => index + 1).filter((value) => value !== result)];
+    const outward = new THREE.Vector3(0, 0, 1);
+    const faces = this.geometryFaces(geometry).slice(0, sides);
+
+    faces.forEach((face, index) => {
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(size, size),
+        this.faceMaterial(numbers[index]),
+      );
+      plane.position.copy(face.center).addScaledVector(face.normal, .018);
+      plane.quaternion.setFromUnitVectors(outward, face.normal);
+      plane.renderOrder = 6;
+      group.add(plane);
+    });
+    return group;
   },
 
   makeDie(die, index, count) {
@@ -333,7 +413,7 @@ const engine = {
       new THREE.EdgesGeometry(geometry, 18),
       new THREE.LineBasicMaterial({ color: 0xd7b0ff, transparent: true, opacity: .38 }),
     );
-    group.add(mesh, edges, this.makeLabel(die.result, scale));
+    group.add(mesh, edges, this.createFaceLabels(geometry, die.sides, die.result));
     group.scale.setScalar(scale);
     group.userData = {
       index,
@@ -369,8 +449,10 @@ const engine = {
     this.dice.forEach((group) => {
       group.traverse((object) => {
         object.geometry?.dispose?.();
-        if (object.material?.map) object.material.map.dispose();
-        object.material?.dispose?.();
+        if (!object.material?.userData?.sharedFaceLabel) {
+          if (object.material?.map) object.material.map.dispose();
+          object.material?.dispose?.();
+        }
       });
       this.scene.remove(group);
     });
